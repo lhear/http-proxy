@@ -1,4 +1,4 @@
-name: "Test"
+name: "Run"
 
 on:
   workflow_dispatch:
@@ -7,7 +7,7 @@ on:
     
 jobs:
   build:
-    name: Test
+    name: Run
     runs-on: ubuntu-latest
 
     steps:
@@ -21,7 +21,7 @@ jobs:
           pip install aiohttp
           curl "https://raw.githubusercontent.com/themiralay/Proxy-List-World/master/data.txt" -o source.txt
           cat list.txt >> source.txt
-          python3 test.py source.txt -o list.txt
+          python3 check_proxies.py source.txt -o list.txt
           python3 list_proxies.py > README.md
           git config --local user.name "github-actions[bot]"
           git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
