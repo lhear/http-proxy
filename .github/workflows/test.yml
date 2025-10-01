@@ -24,6 +24,6 @@ jobs:
           python3 test.py source.txt -o list.txt
           git config --local user.name "github-actions[bot]"
           git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add list.txt
+          git add list.txt list.json
           git commit -m "update list.txt"
           git push origin main
