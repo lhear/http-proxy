@@ -141,7 +141,7 @@ async def test_http_proxy(
             test_url,
             proxy=http_proxy_url,
             timeout=aiohttp.ClientTimeout(total=timeout),
-            ssl=False  # Disable SSL verification for proxy testing (optional, but common)
+            ssl=True
         ) as response:
             response_time = time.time() - start_time
             response_text = await response.text()
