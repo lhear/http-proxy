@@ -17,6 +17,7 @@ jobs:
 
       - name: Test
         run: |
+          pip install aiohttp
           curl "https://raw.githubusercontent.com/themiralay/Proxy-List-World/master/data.txt" -o source.txt
           cat list.txt >> source.txt
           python3 test.py source.txt -o list.txt
