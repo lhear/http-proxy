@@ -10,7 +10,7 @@ import argparse
 import ipaddress
 
 # Test target URL
-TEST_URL = "https://www.google.com/generate_204"
+TEST_URL = "https://8.8.8.8/dns-query"
 
 
 def is_ip_in_cidr_list(ip_str: str, cidr_list: List[ipaddress.IPv4Network]) -> bool:
@@ -85,7 +85,7 @@ async def test_http_proxy(proxy: str, session: aiohttp.ClientSession, timeout: i
         ) as response:
             response_time = time.time() - start_time
 
-            if response.status == 204:
+            if response.status == 400:
                 return proxy, True, response_time, ""
             else:
                 return proxy, False, response_time, f"HTTP {response.status}"
