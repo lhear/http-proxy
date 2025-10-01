@@ -1,8 +1,8 @@
 | Proxy | Location | Added Time |
 |---------|----------|------------|
-| 156.59.103.43:8080 | HK | 6 hours ago |
-| 34.94.98.68:8080 | US | 6 hours ago |
-| 91.103.120.49:443 | HK | 6 hours ago |
+| 156.59.103.43:8080 | HK | 7 hours ago |
+| 34.94.98.68:8080 | US | 7 hours ago |
+| 91.103.120.49:443 | HK | 7 hours ago |
 | 213.35.105.30:8080 | SG | 4 hours ago |
 | 35.243.0.249:10032 | US | 3 hours ago |
 | 35.243.0.249:10005 | US | 3 hours ago |
@@ -23,15 +23,20 @@
 | 14.251.13.0:8080 | VN | 2 hours ago |
 | 199.188.204.171:8080 | US | 1 hours ago |
 | 199.188.204.105:8080 | US | 1 hours ago |
-| 35.232.62.97:8080 | US | 51 minutes ago |
-| 202.5.52.112:2727 | BD | 26 minutes ago |
-| 202.5.55.33:2727 | BD | 26 minutes ago |
-| 35.243.1.4:10001 | US | 26 minutes ago |
-| 190.242.157.215:8080 | CO | 21 minutes ago |
-| 211.230.49.122:3128 | KR | 16 minutes ago |
-| 202.5.57.15:2727 | BD | 11 minutes ago |
-| 72.10.160.172:17469 | FR | 11 minutes ago |
-| 103.199.109.154:2525 | BD | 6 minutes ago |
-| 123.58.219.225:8080 | HK | 1 minutes ago |
-| 193.122.197.154:80 | US | 1 minutes ago |
-| 62.171.159.232:8888 | DE | 1 minutes ago |
+| 35.232.62.97:8080 | US | 56 minutes ago |
+| 202.5.52.112:2727 | BD | 31 minutes ago |
+| 202.5.55.33:2727 | BD | 31 minutes ago |
+| 35.243.1.4:10001 | US | 31 minutes ago |
+| 190.242.157.215:8080 | CO | 26 minutes ago |
+| 202.5.57.15:2727 | BD | 16 minutes ago |
+| 72.10.160.172:17469 | FR | 16 minutes ago |
+| 103.199.109.154:2525 | BD | 11 minutes ago |
+| 62.171.159.232:8888 | DE | 6 minutes ago |
+| 129.159.114.120:8080 | US | 1 minutes ago |
+| 186.96.50.113:999 | MX | 1 minutes ago |
+| 199.188.204.195:8080 | US | 1 minutes ago |
+| 202.5.32.137:2727 | BD | 1 minutes ago |
+| 42.117.124.249:16000 | VN | 1 minutes ago |
+| 45.136.198.40:3128 | BG | 1 minutes ago |
+| 45.14.224.247:80 | NL | 1 minutes ago |
+| 51.159.159.73:80 | FR | 1 minutes ago |
