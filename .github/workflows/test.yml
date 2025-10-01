@@ -2,10 +2,9 @@ name: "Test"
 
 on:
   workflow_dispatch:
-  release:
-    types:
-      - published
-
+  schedule:
+    - cron: '*/10 * * * *'
+    
 jobs:
   build:
     name: Test
