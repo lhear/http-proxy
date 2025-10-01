@@ -2,8 +2,8 @@ name: "Test"
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: '*/5 * * * *'
+  repository_dispatch:
+    types: [run]
     
 jobs:
   build:
