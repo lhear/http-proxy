@@ -241,7 +241,7 @@ def main():
     parser = argparse.ArgumentParser(description='Test HTTP proxy availability with location tracking')
     parser.add_argument('input_file', help='Input file containing HTTP proxy list (host:port)')
     parser.add_argument('-o', '--output', help='Output file to save final available proxies')
-    parser.add_argument('-t', '--timeout', type=int, default=8, help='Timeout in seconds (default: 8)')
+    parser.add_argument('-t', '--timeout', type=int, default=5, help='Timeout in seconds (default: 5)')
     parser.add_argument('-c', '--concurrent', type=int, default=300, help='Max concurrent proxy tests (default: 300)')
     parser.add_argument('--max-rounds', type=int, default=30, help='Max test rounds (default: 30)')
     parser.add_argument('--skip-cidr', help='File containing CIDR ranges to skip (one per line)')
