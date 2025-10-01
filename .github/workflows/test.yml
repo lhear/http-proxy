@@ -21,6 +21,8 @@ jobs:
           curl "https://raw.githubusercontent.com/themiralay/Proxy-List-World/master/data.txt" -o source.txt
           cat list.txt >> source.txt
           python3 test.py source.txt -o list.txt
+          git config --local user.name "github-actions[bot]"
+          git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add list.txt
           git commit -m "update list.txt"
           git push main
