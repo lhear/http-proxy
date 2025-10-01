@@ -237,6 +237,20 @@ def print_summary(results: List[Tuple[str, bool, float, str, Optional[str]]], ro
     header += f"\n{'='*80}"
     print(header)
 
+async def check_test_url(test_url: str, timeout: int) -> bool:
+    try:
+        connector = aiohttp.TCPConnector(ssl=True)
+        async with aiohttp.ClientSession(connector=connector) as session:
+            async with session.get(test_url, timeout=aiohttp.ClientTimeout(total=timeout)) as resp:
+                if resp.status == 200:
+                    return True
+                else:
+                    print(f"Error: Test URL returned HTTP {resp.status}")
+                    return False
+    except Exception as e:
+        print(f"Error: Failed to reach test URL '{test_url}': {e}")
+        return False
+
 def main():
     parser = argparse.ArgumentParser(description='Test HTTP proxy availability with location tracking')
     parser.add_argument('input_file', help='Input file containing HTTP proxy list (host:port)')
@@ -247,6 +261,12 @@ def main():
     parser.add_argument('--skip-cidr', help='File containing CIDR ranges to skip (one per line)')
     parser.add_argument('--test-url', default=DEFAULT_TEST_URL, help=f'Health check URL (default: {DEFAULT_TEST_URL})')
     args = parser.parse_args()
+
+    print(f"Verifying test URL: {args.test_url}")
+    if not asyncio.run(check_test_url(args.test_url, args.timeout)):
+        print("Error: Test URL is not accessible. Please check the URL or network.")
+        sys.exit(1)
+    print("✓ Test URL is accessible.\n")
 
     timestamp_file = None
     if args.output:
@@ -322,6 +342,12 @@ def main():
             print(f"\nDid not achieve 3 consecutive 100% passes (max rounds: {args.max_rounds})")
 
         if args.output and current_proxies:
+            print("\nVerifying test URL before final save...")
+            if not asyncio.run(check_test_url(args.test_url, args.timeout)):
+                print("Error: Test URL is not accessible before final save. Aborting output.")
+                sys.exit(1)
+            print("✓ Test URL is accessible before final save.")
+
             print("\nRe-testing final proxy list...")
             final_results = asyncio.run(test_all_proxies(current_proxies, args.timeout, args.concurrent, args.test_url))
             available_final = [r for r in final_results if r[1]]
