@@ -5,39 +5,101 @@ import aiohttp
 import time
 import json
 import os
+import tempfile
 from typing import List, Tuple, Dict, Optional, Union
 import sys
 import argparse
 import ipaddress
+import urllib.parse
 
-# Test target URL
-TEST_URL = "https://1.1.1.1/cdn-cgi/trace"
+DEFAULT_TEST_URL = "https://1.1.1.1/cdn-cgi/trace"
 
+def validate_proxy(proxy: str) -> bool:
+    """Validate proxy format: host:port (host can be IPv4, IPv6 in brackets, or domain)"""
+    if not proxy or ':' not in proxy:
+        return False
+    # Handle IPv6: [::1]:8080
+    if proxy.startswith('['):
+        if ']' not in proxy:
+            return False
+        host_part, _, port_part = proxy.partition(']:')
+        if not host_part or not port_part:
+            return False
+        host = host_part[1:]  # remove leading '['
+        port_str = port_part
+    else:
+        parts = proxy.rsplit(':', 1)  # split on last colon (in case host has colons, e.g., IPv6 without brackets)
+        if len(parts) != 2:
+            return False
+        host, port_str = parts
 
-def is_ip_in_cidr_list(ip_str: str, cidr_list: List[ipaddress.IPv4Network]) -> bool:
+    host = host.strip()
+    port_str = port_str.strip()
+    if not host or not port_str:
+        return False
+
     try:
-        ip = ipaddress.IPv4Address(ip_str)
+        port = int(port_str)
+        if not (1 <= port <= 65535):
+            return False
+    except ValueError:
+        return False
+
+    # Basic host validation: allow domains, IPv4, IPv6 (without brackets here)
+    if host == 'localhost':
+        return True
+    try:
+        ipaddress.ip_address(host)
+        return True
+    except ValueError:
+        pass
+
+    # Simple domain check (not exhaustive)
+    if all(c.isalnum() or c in ('.', '-', '_') for c in host) and len(host) <= 253:
+        return True
+
+    return False
+
+
+def is_ip_in_cidr_list(ip_str: str, cidr_list: List[Union[ipaddress.IPv4Network, ipaddress.IPv6Network]]) -> bool:
+    try:
+        ip = ipaddress.ip_address(ip_str)
         for cidr in cidr_list:
             if ip in cidr:
                 return True
-    except ipaddress.AddressValueError:
+    except ValueError:
         pass
     return False
 
 
-def filter_proxies_by_cidr(proxies: List[str], skip_cidr_list: List[ipaddress.IPv4Network]) -> List[str]:
+def extract_host_from_proxy(proxy: str) -> Optional[str]:
+    """Extract host from proxy string (handle IPv6 in brackets)"""
+    if proxy.startswith('['):
+        end_bracket = proxy.find(']')
+        if end_bracket == -1:
+            return None
+        return proxy[1:end_bracket]
+    else:
+        host = proxy.split(':')[0].strip()
+        return host if host else None
+
+
+def filter_proxies_by_cidr(proxies: List[str], skip_cidr_list: List[Union[ipaddress.IPv4Network, ipaddress.IPv6Network]]) -> List[str]:
     if not skip_cidr_list:
         return proxies
 
     filtered = []
     for proxy in proxies:
-        host = proxy.split(':')[0].strip()
+        host = extract_host_from_proxy(proxy)
+        if host is None:
+            filtered.append(proxy)  # keep if can't parse (let test fail later)
+            continue
         if not is_ip_in_cidr_list(host, skip_cidr_list):
             filtered.append(proxy)
     return filtered
 
 
-def read_cidr_list_from_file(filename: str) -> List[ipaddress.IPv4Network]:
+def read_cidr_list_from_file(filename: str) -> List[Union[ipaddress.IPv4Network, ipaddress.IPv6Network]]:
     try:
         cidrs = []
         with open(filename, 'r', encoding='utf-8') as f:
@@ -45,7 +107,7 @@ def read_cidr_list_from_file(filename: str) -> List[ipaddress.IPv4Network]:
                 line = line.strip()
                 if line and not line.startswith('#'):
                     try:
-                        network = ipaddress.IPv4Network(line, strict=False)
+                        network = ipaddress.ip_network(line, strict=False)
                         cidrs.append(network)
                     except ValueError as e:
                         print(f"Warning: Invalid CIDR in skip file '{filename}': {line} ({e})")
@@ -66,14 +128,20 @@ def extract_loc_from_trace(response_text: str) -> Optional[str]:
     return None
 
 
-async def test_http_proxy(proxy: str, session: aiohttp.ClientSession, timeout: int) -> Tuple[str, bool, float, str, Optional[str]]:
+async def test_http_proxy(
+    proxy: str,
+    session: aiohttp.ClientSession,
+    timeout: int,
+    test_url: str
+) -> Tuple[str, bool, float, str, Optional[str]]:
     start_time = time.time()
     try:
         http_proxy_url = f"http://{proxy}"
         async with session.get(
-            TEST_URL,
+            test_url,
             proxy=http_proxy_url,
-            timeout=aiohttp.ClientTimeout(total=timeout)
+            timeout=aiohttp.ClientTimeout(total=timeout),
+            ssl=False  # Disable SSL verification for proxy testing (optional, but common)
         ) as response:
             response_time = time.time() - start_time
             response_text = await response.text()
@@ -87,17 +155,39 @@ async def test_http_proxy(proxy: str, session: aiohttp.ClientSession, timeout: i
     except asyncio.TimeoutError:
         response_time = time.time() - start_time
         return proxy, False, response_time, "Timeout", None
-    except Exception as e:
+    except aiohttp.ClientProxyConnectionError:
         response_time = time.time() - start_time
-        return proxy, False, response_time, str(e), None
+        return proxy, False, response_time, "Proxy connection failed", None
+    except aiohttp.ClientHttpProxyError:
+        response_time = time.time() - start_time
+        return proxy, False, response_time, "Proxy HTTP error", None
+    except aiohttp.ClientSSLError:
+        response_time = time.time() - start_time
+        return proxy, False, response_time, "SSL/TLS error", None
+    except aiohttp.ClientConnectorError:
+        response_time = time.time() - start_time
+        return proxy, False, response_time, "Connection failed", None
+    except Exception:
+        response_time = time.time() - start_time
+        return proxy, False, response_time, "Unknown error", None
 
 
-async def test_all_proxies(proxies: List[str], timeout: int, max_concurrent: int) -> List[Tuple[str, bool, float, str, Optional[str]]]:
+async def test_all_proxies(
+    proxies: List[str],
+    timeout: int,
+    max_concurrent: int,
+    test_url: str
+) -> List[Tuple[str, bool, float, str, Optional[str]]]:
     if not proxies:
         return []
-    connector = aiohttp.TCPConnector(limit=max_concurrent)
+    connector = aiohttp.TCPConnector(
+        limit=max_concurrent,
+        limit_per_host=10,
+        force_close=True,
+        enable_cleanup_closed=True
+    )
     async with aiohttp.ClientSession(connector=connector) as session:
-        tasks = [test_http_proxy(proxy.strip(), session, timeout) for proxy in proxies]
+        tasks = [test_http_proxy(proxy.strip(), session, timeout, test_url) for proxy in proxies]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         processed_results = []
@@ -112,8 +202,17 @@ async def test_all_proxies(proxies: List[str], timeout: int, max_concurrent: int
 def read_proxies_from_file(filename: str) -> List[str]:
     try:
         with open(filename, 'r', encoding='utf-8') as f:
-            proxies = [line.strip() for line in f if line.strip() and not line.startswith('#')]
-        return proxies
+            lines = [line.strip() for line in f if line.strip() and not line.startswith('#')]
+        valid_proxies = []
+        invalid_count = 0
+        for line in lines:
+            if validate_proxy(line):
+                valid_proxies.append(line)
+            else:
+                invalid_count += 1
+        if invalid_count:
+            print(f"Warning: Skipped {invalid_count} invalid proxy entries")
+        return valid_proxies
     except FileNotFoundError:
         print(f"Error: File '{filename}' not found")
         sys.exit(1)
@@ -143,10 +242,13 @@ def load_timestamps(json_file: str) -> Dict[str, Dict[str, Union[float, str, Non
 
 
 def save_timestamps(proxy_info: Dict[str, Dict[str, Union[float, str, None]]], json_file: str):
-    """Save proxy info to JSON."""
+    """Save proxy info to JSON atomically."""
     try:
-        with open(json_file, 'w', encoding='utf-8') as f:
+        dir_path = os.path.dirname(json_file) or '.'
+        with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', delete=False, dir=dir_path, suffix='.tmp') as f:
             json.dump(proxy_info, f, indent=2, sort_keys=True, ensure_ascii=False)
+            temp_name = f.name
+        os.replace(temp_name, json_file)
     except Exception as e:
         print(f"Warning: Failed to save timestamp file '{json_file}' - {e}")
 
@@ -185,7 +287,7 @@ def print_results(results: List[Tuple[str, bool, float, str, Optional[str]]], ro
         if is_available:
             time_str = f"{response_time:.2f}s"
             loc_str = loc if loc else "N/A"
-            print(f"{proxy:<20} | {time_str:<8} | loc={loc_str}")
+            print(f"{proxy:<25} | {time_str:<8} | loc={loc_str}")
 
     print(f"{'='*80}")
     success_rate = (available_count / total_count * 100) if total_count > 0 else 0
@@ -201,6 +303,8 @@ def main():
     parser.add_argument('-c', '--concurrent', type=int, default=70, help='Max concurrent connections (default: 70)')
     parser.add_argument('--max-rounds', type=int, default=30, help='Max test rounds (default: 30)')
     parser.add_argument('--skip-cidr', help='File containing CIDR ranges to skip (one per line)')
+    parser.add_argument('--test-url', default=DEFAULT_TEST_URL,
+                        help=f'Health check URL (default: {DEFAULT_TEST_URL})')
 
     args = parser.parse_args()
 
@@ -250,7 +354,7 @@ def main():
             round_num += 1
             print(f"\n>>> Starting Round {round_num} (Current consecutive success: {consecutive_success})")
 
-            results = asyncio.run(test_all_proxies(current_proxies, args.timeout, args.concurrent))
+            results = asyncio.run(test_all_proxies(current_proxies, args.timeout, args.concurrent, args.test_url))
             print_results(results, round_num)
 
             available_proxies_with_loc = [(proxy, loc) for proxy, ok, _, _, loc in results if ok]
@@ -288,7 +392,7 @@ def main():
 
         if args.output and current_proxies:
             print("Re-testing final proxy list for up-to-date status...")
-            final_results = asyncio.run(test_all_proxies(current_proxies, args.timeout, args.concurrent))
+            final_results = asyncio.run(test_all_proxies(current_proxies, args.timeout, args.concurrent, args.test_url))
             available_final = [r for r in final_results if r[1]]
             available_final_proxies = [proxy for proxy, _, _, _, _ in available_final]
 
