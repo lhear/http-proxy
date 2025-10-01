@@ -1,0 +1,25 @@
+name: "Test"
+
+on:
+  workflow_dispatch:
+  release:
+    types:
+      - published
+
+jobs:
+  build:
+    name: Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Test
+        run: |
+          curl "https://raw.githubusercontent.com/themiralay/Proxy-List-World/master/data.txt" -o source.txt
+          cat list.txt >> source.txt
+          python3 test.py source.txt -o list.txt
+          git add list.txt
+          git commit -m "update list.txt"
+          git push main
