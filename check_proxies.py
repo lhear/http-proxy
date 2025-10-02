@@ -40,16 +40,11 @@ def validate_proxy(proxy: str) -> bool:
             return False
     except ValueError:
         return False
-    if host == 'localhost':
-        return True
     try:
         ipaddress.ip_address(host)
         return True
     except ValueError:
-        pass
-    if all(c.isalnum() or c in ('.', '-', '_') for c in host) and len(host) <= 253:
-        return True
-    return False
+        return False
 
 def is_ip_in_cidr_list(ip_str: str, cidr_list: List[Union[ipaddress.IPv4Network, ipaddress.IPv6Network]]) -> bool:
     try:
@@ -78,7 +73,6 @@ def filter_proxies_by_cidr(proxies: List[str], skip_cidr_list: List[Union[ipaddr
     for proxy in proxies:
         host = extract_host_from_proxy(proxy)
         if host is None:
-            filtered.append(proxy)
             continue
         if not is_ip_in_cidr_list(host, skip_cidr_list):
             filtered.append(proxy)
@@ -94,8 +88,8 @@ def read_cidr_list_from_file(filename: str) -> List[Union[ipaddress.IPv4Network,
                     try:
                         network = ipaddress.ip_network(line, strict=False)
                         cidrs.append(network)
-                    except ValueError as e:
-                        print(f"Warning: Invalid CIDR in skip file '{filename}': {line} ({e})")
+                    except ValueError:
+                        pass
         return cidrs
     except FileNotFoundError:
         print(f"Error: Skip CIDR file '{filename}' not found")
@@ -199,7 +193,6 @@ def load_timestamps(json_file: str) -> Dict[str, Dict[str, Union[float, str, Non
                     cleaned[proxy] = {'added_at': float(info['added_at']), 'location': info.get('location')}
             return cleaned
     except Exception as e:
-        print(f"Warning: Failed to load timestamp file '{json_file}' - {e}")
         return {}
 
 def save_timestamps(proxy_info: Dict[str, Dict[str, Union[float, str, None]]], json_file: str):
@@ -210,7 +203,22 @@ def save_timestamps(proxy_info: Dict[str, Dict[str, Union[float, str, None]]], j
             temp_name = f.name
         os.replace(temp_name, json_file)
     except Exception as e:
-        print(f"Warning: Failed to save timestamp file '{json_file}' - {e}")
+        pass
+
+def deduplicate_by_ip_keep_earliest(proxies: List[str], proxy_info: Dict[str, Dict[str, Union[float, str, None]]], current_time: float) -> List[str]:
+    ip_map = {}
+    for proxy in proxies:
+        host = extract_host_from_proxy(proxy)
+        if host is None:
+            continue
+        try:
+            ip = str(ipaddress.ip_address(host))
+        except ValueError:
+            continue
+        added_at = proxy_info.get(proxy, {}).get('added_at', current_time)
+        if ip not in ip_map or added_at < ip_map[ip][1]:
+            ip_map[ip] = (proxy, added_at)
+    return [proxy for proxy, _ in ip_map.values()]
 
 def save_results_to_file(results: List[Tuple[str, bool, float, str, Optional[str]]], filename: str, proxy_info: Dict[str, Dict[str, Union[float, str, None]]]):
     available_proxies = [proxy for proxy, ok, _, _, _ in results if ok]
@@ -223,9 +231,8 @@ def save_results_to_file(results: List[Tuple[str, bool, float, str, Optional[str
         with open(filename, 'w', encoding='utf-8') as f:
             for proxy in sorted_proxies:
                 f.write(f"{proxy}\n")
-        print(f"Available proxies saved to: {filename} (sorted by addition time)")
     except Exception as e:
-        print(f"Warning: Failed to save results file - {e}")
+        pass
 
 def print_summary(results: List[Tuple[str, bool, float, str, Optional[str]]], round_num: int = None):
     available_count = sum(1 for r in results if r[1])
@@ -242,13 +249,8 @@ async def check_test_url(test_url: str, timeout: int) -> bool:
         connector = aiohttp.TCPConnector(ssl=True)
         async with aiohttp.ClientSession(connector=connector) as session:
             async with session.get(test_url, timeout=aiohttp.ClientTimeout(total=timeout)) as resp:
-                if resp.status == 200:
-                    return True
-                else:
-                    print(f"Error: Test URL returned HTTP {resp.status}")
-                    return False
-    except Exception as e:
-        print(f"Error: Failed to reach test URL '{test_url}': {e}")
+                return resp.status == 200
+    except Exception:
         return False
 
 def main():
@@ -354,32 +356,40 @@ def main():
             available_final_proxies = [proxy for proxy, _, _, _, _ in available_final]
 
             if available_final_proxies:
-                cleaned_info = {}
                 now = time.time()
-                for proxy, _, _, _, loc in available_final:
+                dedup_proxies = deduplicate_by_ip_keep_earliest(available_final_proxies, proxy_info, now)
+                if len(dedup_proxies) != len(available_final_proxies):
+                    print(f"Removed {len(available_final_proxies) - len(dedup_proxies)} proxies with duplicate IPs")
+
+                cleaned_info = {}
+                dedup_set = set(dedup_proxies)
+                filtered_final_results = [r for r in final_results if r[0] in dedup_set]
+
+                for proxy, _, _, _, loc in filtered_final_results:
                     if proxy in proxy_info:
                         cleaned_info[proxy] = proxy_info[proxy]
                     else:
                         cleaned_info[proxy] = {'added_at': now, 'location': loc or "N/A"}
+
                 if timestamp_file:
                     save_timestamps(cleaned_info, timestamp_file)
-                save_results_to_file(final_results, args.output, cleaned_info)
+                save_results_to_file(filtered_final_results, args.output, cleaned_info)
             else:
                 print("No proxies in final test, skipping output")
                 if timestamp_file and os.path.exists(timestamp_file):
                     try:
                         os.remove(timestamp_file)
                         print(f"Removed empty timestamp file: {timestamp_file}")
-                    except Exception as e:
-                        print(f"Failed to remove timestamp file: {e}")
+                    except Exception:
+                        pass
         elif args.output:
             print("No proxies to save")
             if timestamp_file and os.path.exists(timestamp_file):
                 try:
                     os.remove(timestamp_file)
                     print(f"Removed empty timestamp file: {timestamp_file}")
-                except Exception as e:
-                    print(f"Failed to remove timestamp file: {e}")
+                except Exception:
+                    pass
 
     except KeyboardInterrupt:
         print("\nInterrupted by user")
